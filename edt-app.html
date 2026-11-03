@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f8ea8">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Liens emploi du temps</title>
+<style>
+  :root{
+    --bg:#f6f5f2; --card:#fff; --ink:#1c1c1e; --muted:#6b6b70; --line:#e4e2dc;
+    --accent:#0f8ea8; --accent-soft:#dff2f6; --today:#c2410c;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#141416;--card:#1e1e21;--ink:#f2f2f2;--muted:#9a9aa0;--line:#2e2e33;--accent:#3cb6cf;--accent-soft:#16343b;--today:#fb923c;}
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;}
+  main{max-width:480px;margin:0 auto;padding:16px 14px 40px}
+  h1{font-size:20px;margin:4px 0 2px}
+  .sub{color:var(--muted);font-size:14px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+  .row{display:flex;align-items:center;gap:8px}
+  label{font-size:13px;color:var(--muted)}
+  input{font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:8px;padding:6px 8px;width:110px}
+  button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:8px 12px}
+  .nav{justify-content:space-between;margin:14px 0 8px}
+  .nav h2{font-size:17px;margin:0;text-transform:capitalize}
+  .nav button{width:42px;padding:8px 0;font-size:18px}
+  .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:0}
+  .dow{font-size:12px;color:var(--muted);text-align:center;padding:4px 0 6px}
+  .week{display:contents}
+  .day{text-align:center;padding:11px 0;font-variant-numeric:tabular-nums;cursor:pointer;border-top:1px solid var(--line)}
+  .day.out{color:var(--muted);opacity:.55}
+  .day.today{color:var(--today);font-weight:700}
+  .week.sel .day{background:var(--accent-soft)}
+  .week.sel .day:first-child{border-radius:10px 0 0 10px}
+  .week.sel .day:last-child{border-radius:0 10px 10px 0}
+  .result{margin-top:14px}
+  .result h3{margin:0 0 6px;font-size:15px}
+  .link{word-break:break-all;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;user-select:all}
+  .actions{margin-top:10px;gap:8px;flex-wrap:wrap}
+  .primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+  .btnlink{display:inline-block;text-decoration:none;border-radius:10px;padding:8px 12px;border:1px solid var(--accent)}
+  .ok{color:var(--accent);font-size:14px}
+  .today-btn{margin-left:auto}
+  .tip{color:var(--muted);font-size:13px;margin-top:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Emploi du temps : liens par semaine</h1>
+  <p class="sub">Touche une semaine, puis « Ouvrir ».</p>
+
+  <div class="card">
+    <div class="row">
+      <label for="sid">N° élève</label>
+      <input id="sid" inputmode="numeric" value="20120">
+      <button class="today-btn" id="todayBtn">Cette semaine</button>
+    </div>
+
+    <div class="row nav">
+      <button id="prev" aria-label="Mois précédent">‹</button>
+      <h2 id="monthLabel"></h2>
+      <button id="next" aria-label="Mois suivant">›</button>
+    </div>
+
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <div class="card result" id="result">
+    <h3 id="weekLabel"></h3>
+    <div class="link" id="link"></div>
+    <div class="row actions">
+      <a class="primary btnlink" id="open" href="#">Ouvrir l'emploi du temps</a>
+      <button id="copy">Copier</button>
+      <span class="ok" id="ok"></span>
+    </div>
+  </div>
+
+  <p class="tip">Le lien est en <b>http</b> (pas https) : c'est voulu, pour qu'il passe par le proxy de l'école. Si Firefox le change en https, désactive le « Mode HTTPS uniquement ».</p>
+</main>
+
+<script>
+(function(){
+  const BASE = "http://webdfd.mines-ales.fr/planning-eleves/index.php?url=eleve/";
+  const sidEl = document.getElementById("sid");
+  try { const s = localStorage.getItem("edt-sid"); if (s) sidEl.value = s; } catch(e){}
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const mondayOf = d => { const m = new Date(d); const k = (m.getDay()+6)%7; m.setDate(m.getDate()-k); m.setHours(0,0,0,0); return m; };
+  const pad = n => String(n).padStart(2,"0");
+  const ymd = d => d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate());
+  const fmt = d => d.toLocaleDateString("fr-FR",{day:"numeric",month:"long"});
+
+  let view = new Date(today.getFullYear(), today.getMonth(), 1);
+  let selected = mondayOf(today);
+
+  function render(){
+    document.getElementById("monthLabel").textContent =
+      view.toLocaleDateString("fr-FR",{month:"long",year:"numeric"});
+    const grid = document.getElementById("grid");
+    grid.innerHTML = "";
+    ["L","M","M","J","V","S","D"].forEach(t=>{const e=document.createElement("div");e.className="dow";e.textContent=t;grid.appendChild(e);});
+    let start = mondayOf(view);
+    const last = new Date(view.getFullYear(), view.getMonth()+1, 0);
+    while (start <= last){
+      const w = document.createElement("div");
+      w.className = "week" + (start.getTime()===selected.getTime() ? " sel" : "");
+      const mon = new Date(start);
+      for (let i=0;i<7;i++){
+        const d = new Date(start); d.setDate(start.getDate()+i);
+        const c = document.createElement("div");
+        c.className = "day" + (d.getMonth()!==view.getMonth()?" out":"") + (d.getTime()===today.getTime()?" today":"");
+        c.textContent = d.getDate();
+        c.addEventListener("click",()=>{ selected = mon; render(); });
+        w.appendChild(c);
+      }
+      grid.appendChild(w);
+      start.setDate(start.getDate()+7);
+    }
+    showLink();
+  }
+
+  function showLink(){
+    const sid = (sidEl.value||"").trim();
+    const end = new Date(selected); end.setDate(end.getDate()+6);
+    document.getElementById("weekLabel").textContent = "Semaine du " + fmt(selected) + " au " + fmt(end);
+    const url = BASE + sid + "/week/" + ymd(selected);
+    document.getElementById("link").textContent = url;
+    document.getElementById("open").href = url;
+    document.getElementById("ok").textContent = "";
+  }
+
+  document.getElementById("prev").onclick = ()=>{ view.setMonth(view.getMonth()-1); render(); };
+  document.getElementById("next").onclick = ()=>{ view.setMonth(view.getMonth()+1); render(); };
+  document.getElementById("todayBtn").onclick = ()=>{ view = new Date(today.getFullYear(), today.getMonth(), 1); selected = mondayOf(today); render(); };
+  sidEl.addEventListener("input", ()=>{ try{localStorage.setItem("edt-sid", sidEl.value.trim());}catch(e){} showLink(); });
+
+  document.getElementById("copy").onclick = async ()=>{
+    const text = document.getElementById("link").textContent;
+    const ok = document.getElementById("ok");
+    try { await navigator.clipboard.writeText(text); ok.textContent = "Copié ✓ — colle-le dans Firefox"; }
+    catch(e){
+      const r = document.createRange(); r.selectNodeContents(document.getElementById("link"));
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      ok.textContent = "Lien sélectionné : fais « Copier »";
+    }
+  };
+
+  render();
+})();
+</script>
+</body>
+</html>
